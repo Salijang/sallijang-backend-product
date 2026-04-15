@@ -9,7 +9,7 @@ class StoreBase(BaseModel):
     longitude: Optional[float] = None
 
 class StoreCreate(StoreBase):
-    pass
+    address: Optional[str] = None  # 판매자가 입력하는 주소 텍스트 (지오코딩에 사용)
 
 class StoreResponse(StoreBase):
     id: int
