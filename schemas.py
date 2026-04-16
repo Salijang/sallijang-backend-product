@@ -14,6 +14,7 @@ class StoreCreate(StoreBase):
 class StoreResponse(StoreBase):
     id: int
     owner_id: int
+    address: Optional[str] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -51,7 +52,8 @@ class ProductResponse(ProductBase):
     created_at: datetime
     
     # 조인(Join)된 가게 데이터를 프론트엔드로 쉽게 넘겨주기 위함
-    shop_name: Optional[str] = None 
+    shop_name: Optional[str] = None
+    store_address: Optional[str] = None
     distance: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None

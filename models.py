@@ -12,6 +12,7 @@ class Store(Base):
     # 논리적으로만 owner_id를 저장하여 결합도(Coupling)를 낮춥니다.
     owner_id = Column(Integer, index=True, nullable=False)
     name = Column(String, index=True, nullable=False)
+    address = Column(String, nullable=True)
     distance = Column(String, nullable=True) # 예: "500m"
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
