@@ -1,7 +1,13 @@
 from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
-import datetime
+from datetime import datetime, timezone, timedelta
+
+KST = timezone(timedelta(hours=9))
+
+def kst_now() -> datetime:
+    """현재 한국 표준시(KST, UTC+9)를 반환합니다."""
+    return datetime.now(KST).replace(tzinfo=None)
 
 class Store(Base):
     __tablename__ = "stores"
@@ -16,7 +22,7 @@ class Store(Base):
     distance = Column(String, nullable=True) # 예: "500m"
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=kst_now)
 
     products = relationship("Product", back_populates="store")
 
@@ -32,11 +38,12 @@ class Product(Base):
     remaining = Column(Integer, default=0)
     total_quantity = Column(Integer, default=0)
     expiry_minutes = Column(Integer, default=60)
+    pickup_deadline = Column(String, nullable=True)  # 픽업 마감 날짜/시간 "YYYY-MM-DDTHH:MM" 형식
     category = Column(String, index=True)
     image_url = Column(String, nullable=True)
     weight = Column(String, nullable=True)
     description = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    created_at = Column(DateTime, default=kst_now)
     is_deleted = Column(Boolean, default=False)
 
     store = relationship("Store", back_populates="products")

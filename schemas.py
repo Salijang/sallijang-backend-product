@@ -25,6 +25,7 @@ class ProductBase(BaseModel):
     remaining: int
     total_quantity: int
     expiry_minutes: int
+    pickup_deadline: Optional[str] = None  # "HH:MM" 형식의 픽업 마감 시간
     category: str
     image_url: Optional[str] = None
     weight: Optional[str] = None
@@ -50,7 +51,7 @@ class ProductResponse(ProductBase):
     id: int
     store_id: int
     created_at: datetime
-    
+
     # 조인(Join)된 가게 데이터를 프론트엔드로 쉽게 넘겨주기 위함
     shop_name: Optional[str] = None
     store_address: Optional[str] = None
