@@ -45,8 +45,9 @@ async def create_product(product: schemas.ProductCreate, store_id: int, db: Asyn
     # 응답 스키마에 프론트엔드가 요구하는 가게 이름(shop_name) 정보를 결합하여 반환
     response_data = schemas.ProductResponse.model_validate(new_product)
     response_data.shop_name = store.name
+    response_data.store_address = store.address
     response_data.distance = store.distance
-    
+
     return response_data
 
 @router.get("/", response_model=List[schemas.ProductResponse])
@@ -70,6 +71,7 @@ async def list_products(
         dist_val = 0
         if p.store:
             p_resp.shop_name = p.store.name
+            p_resp.store_address = p.store.address
             if user_lat is not None and user_lng is not None:
                 dist_km = calculate_distance_km(user_lat, user_lng, p.store.latitude, p.store.longitude)
                 p_resp.distance = format_distance(dist_km)
@@ -77,7 +79,7 @@ async def list_products(
             else:
                 p_resp.distance = p.store.distance
                 dist_val = float('inf') # user loc not given, preserve original order
-            
+
             p_resp.latitude = p.store.latitude
             p_resp.longitude = p.store.longitude
         response_list.append((p_resp, dist_val))
@@ -100,8 +102,23 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
     p_resp = schemas.ProductResponse.model_validate(product)
     if product.store:
         p_resp.shop_name = product.store.name
+        p_resp.store_address = product.store.address
         p_resp.distance = product.store.distance
     return p_resp
+
+@router.patch("/{product_id}/remaining")
+async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depends(get_db)):
+    """재고 수량을 delta만큼 조정합니다. 음수=감소, 양수=복원. 최솟값은 0."""
+    result = await db.execute(select(models.Product).filter(
+        models.Product.id == product_id,
+        models.Product.is_deleted == False
+    ))
+    product = result.scalars().first()
+    if not product:
+        raise HTTPException(status_code=404, detail="Product not found")
+    product.remaining = max(0, product.remaining + delta)
+    await db.commit()
+    return {"product_id": product_id, "remaining": product.remaining}
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
 async def update_product(product_id: int, product_update: schemas.ProductUpdate, db: AsyncSession = Depends(get_db)):
@@ -123,6 +140,7 @@ async def update_product(product_id: int, product_update: schemas.ProductUpdate,
     p_resp = schemas.ProductResponse.model_validate(product)
     if product.store:
         p_resp.shop_name = product.store.name
+        p_resp.store_address = product.store.address
         p_resp.distance = product.store.distance
     return p_resp
 
