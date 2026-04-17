@@ -52,19 +52,28 @@ async def create_product(product: schemas.ProductCreate, store_id: int, db: Asyn
 
 @router.get("/", response_model=List[schemas.ProductResponse])
 async def list_products(
-    store_id: Optional[int] = None, 
+    store_id: Optional[int] = None,
     user_lat: Optional[float] = None,
     user_lng: Optional[float] = None,
+    limit: int = 20,
+    offset: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
     # N+1 쿼리 방지를 위해 selectinload 로 Store 관련 정보도 함께 가져옵니다
-    # 논리적으로 삭제된 항목은 제외합니다.
-    query = select(models.Product).options(selectinload(models.Product.store)).filter(models.Product.is_deleted == False)
+    # 논리적으로 삭제된 항목은 제외하고, remaining > 0 인 상품만 조회합니다
+    query = select(models.Product).options(selectinload(models.Product.store)).filter(
+        models.Product.is_deleted == False,
+        models.Product.remaining > 0
+    )
     if store_id:
         query = query.filter(models.Product.store_id == store_id)
+
+    # 페이지네이션 적용
+    query = query.offset(offset).limit(limit)
+
     result = await db.execute(query)
     products = result.scalars().all()
-    
+
     response_list = []
     for p in products:
         p_resp = schemas.ProductResponse.model_validate(p)
@@ -83,10 +92,10 @@ async def list_products(
             p_resp.latitude = p.store.latitude
             p_resp.longitude = p.store.longitude
         response_list.append((p_resp, dist_val))
-        
+
     if user_lat is not None and user_lng is not None:
         response_list.sort(key=lambda x: x[1])
-        
+
     return [item[0] for item in response_list]
 
 @router.get("/{product_id}", response_model=schemas.ProductResponse)
