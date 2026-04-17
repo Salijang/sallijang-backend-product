@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Boolean, Index
 from sqlalchemy.orm import relationship
 from database import Base
 from datetime import datetime, timezone, timedelta
@@ -28,7 +28,10 @@ class Store(Base):
 
 class Product(Base):
     __tablename__ = "products"
-    __table_args__ = {'schema': 'product_schema'}
+    __table_args__ = (
+        Index('ix_product_active_remaining', 'is_deleted', 'remaining'),
+        {'schema': 'product_schema'},
+    )
 
     id = Column(Integer, primary_key=True, index=True)
     store_id = Column(Integer, ForeignKey("product_schema.stores.id"), index=True, nullable=False)

@@ -10,7 +10,7 @@ POSTGRES_DB = os.getenv("POSTGRES_DB", "salijang_db")
 
 SQLALCHEMY_DATABASE_URL = f"postgresql+asyncpg://{POSTGRES_USER}:{POSTGRES_PASSWORD}@{POSTGRES_SERVER}:{POSTGRES_PORT}/{POSTGRES_DB}"
 
-engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=True)
+engine = create_async_engine(SQLALCHEMY_DATABASE_URL, echo=False)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base()
 

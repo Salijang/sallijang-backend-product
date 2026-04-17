@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import update
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import math
@@ -117,17 +118,40 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
 
 @router.patch("/{product_id}/remaining")
 async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depends(get_db)):
-    """재고 수량을 delta만큼 조정합니다. 음수=감소, 양수=복원. 최솟값은 0."""
-    result = await db.execute(select(models.Product).filter(
-        models.Product.id == product_id,
-        models.Product.is_deleted == False
-    ))
-    product = result.scalars().first()
-    if not product:
-        raise HTTPException(status_code=404, detail="Product not found")
-    product.remaining = max(0, product.remaining + delta)
+    """재고 수량을 delta만큼 조정합니다. 음수=감소, 양수=복원.
+    remaining + delta >= 0 조건을 UPDATE WHERE에 걸어 원자적으로 처리합니다."""
+    stmt = (
+        update(models.Product)
+        .where(
+            models.Product.id == product_id,
+            models.Product.is_deleted == False,
+            models.Product.remaining + delta >= 0,
+        )
+        .values(remaining=models.Product.remaining + delta)
+        .returning(models.Product.remaining)
+    )
+    result = await db.execute(stmt)
+    row = result.fetchone()
+
+    if row is None:
+        await db.rollback()
+        # 상품 자체가 없는지 vs 재고 부족인지 구분
+        exists = await db.execute(
+            select(models.Product.remaining).filter(
+                models.Product.id == product_id,
+                models.Product.is_deleted == False,
+            )
+        )
+        product_row = exists.first()
+        if product_row is None:
+            raise HTTPException(status_code=404, detail="Product not found")
+        raise HTTPException(
+            status_code=409,
+            detail=f"재고가 부족합니다. 현재 남은 수량: {product_row[0]}개",
+        )
+
     await db.commit()
-    return {"product_id": product_id, "remaining": product.remaining}
+    return {"product_id": product_id, "remaining": row[0]}
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
 async def update_product(product_id: int, product_update: schemas.ProductUpdate, db: AsyncSession = Depends(get_db)):
