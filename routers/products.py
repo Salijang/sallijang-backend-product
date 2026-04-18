@@ -1,28 +1,32 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update
+from sqlalchemy import update, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 import math
 
-def calculate_distance_km(lat1, lon1, lat2, lon2):
-    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
-        return float('inf')
-    R = 6371.0
-    dlat = math.radians(lat2 - lat1)
-    dlon = math.radians(lon2 - lon1)
-    a = math.sin(dlat / 2)**2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2)**2
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
-
-def format_distance(km):
+def format_distance(km: float) -> str:
     if km == float('inf'):
         return "거리 알 수 없음"
     m = km * 1000
     if m < 1000:
         return f"{int(m)}m"
     return f"{km:.1f}km"
+
+def _haversine_expr(user_lat: float, user_lng: float):
+    """DB에서 실행되는 Haversine 거리 계산 SQL 표현식 (단위: km)"""
+    return (
+        6371.0 * func.acos(
+            func.least(1.0,
+                func.cos(func.radians(user_lat)) *
+                func.cos(func.radians(models.Store.latitude)) *
+                func.cos(func.radians(models.Store.longitude) - func.radians(user_lng)) +
+                func.sin(func.radians(user_lat)) *
+                func.sin(func.radians(models.Store.latitude))
+            )
+        )
+    )
 
 from database import get_db
 import models
@@ -42,7 +46,7 @@ async def create_product(product: schemas.ProductCreate, store_id: int, db: Asyn
     db.add(new_product)
     await db.commit()
     await db.refresh(new_product)
-    
+
     # 응답 스키마에 프론트엔드가 요구하는 가게 이름(shop_name) 정보를 결합하여 반환
     response_data = schemas.ProductResponse.model_validate(new_product)
     response_data.shop_name = store.name
@@ -54,22 +58,34 @@ async def create_product(product: schemas.ProductCreate, store_id: int, db: Asyn
 @router.get("/", response_model=List[schemas.ProductResponse])
 async def list_products(
     store_id: Optional[int] = None,
+    category: Optional[str] = None,
     user_lat: Optional[float] = None,
     user_lng: Optional[float] = None,
     limit: int = 20,
     offset: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
-    # N+1 쿼리 방지를 위해 selectinload 로 Store 관련 정보도 함께 가져옵니다
-    # 논리적으로 삭제된 항목은 제외하고, remaining > 0 인 상품만 조회합니다
-    query = select(models.Product).options(selectinload(models.Product.store)).filter(
-        models.Product.is_deleted == False,
-        models.Product.remaining > 0
+    query = (
+        select(models.Product)
+        .options(selectinload(models.Product.store))
+        .join(models.Store, models.Product.store_id == models.Store.id)
+        .filter(
+            models.Product.is_deleted == False,
+            models.Product.remaining > 0,
+        )
     )
+
     if store_id:
         query = query.filter(models.Product.store_id == store_id)
 
-    # 페이지네이션 적용
+    if category:
+        query = query.filter(models.Product.category == category)
+
+    # 위치 정보가 있으면 DB에서 거리 계산 후 정렬 → LIMIT/OFFSET 적용
+    if user_lat is not None and user_lng is not None:
+        dist_expr = _haversine_expr(user_lat, user_lng)
+        query = query.order_by(dist_expr)
+
     query = query.offset(offset).limit(limit)
 
     result = await db.execute(query)
@@ -78,26 +94,22 @@ async def list_products(
     response_list = []
     for p in products:
         p_resp = schemas.ProductResponse.model_validate(p)
-        dist_val = 0
         if p.store:
             p_resp.shop_name = p.store.name
             p_resp.store_address = p.store.address
-            if user_lat is not None and user_lng is not None:
-                dist_km = calculate_distance_km(user_lat, user_lng, p.store.latitude, p.store.longitude)
+            if user_lat is not None and user_lng is not None and p.store.latitude and p.store.longitude:
+                dlat = math.radians(p.store.latitude - user_lat)
+                dlng = math.radians(p.store.longitude - user_lng)
+                a = math.sin(dlat/2)**2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(p.store.latitude)) * math.sin(dlng/2)**2
+                dist_km = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
                 p_resp.distance = format_distance(dist_km)
-                dist_val = dist_km
             else:
                 p_resp.distance = p.store.distance
-                dist_val = float('inf') # user loc not given, preserve original order
-
             p_resp.latitude = p.store.latitude
             p_resp.longitude = p.store.longitude
-        response_list.append((p_resp, dist_val))
+        response_list.append(p_resp)
 
-    if user_lat is not None and user_lng is not None:
-        response_list.sort(key=lambda x: x[1])
-
-    return [item[0] for item in response_list]
+    return response_list
 
 @router.get("/{product_id}", response_model=schemas.ProductResponse)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
