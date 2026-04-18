@@ -4,29 +4,22 @@ from sqlalchemy.future import select
 from typing import List, Optional
 import httpx
 
+KAKAO_REST_API_KEY = "83d69d138d85ef5e80b27f425bbbe0f2"
+
 async def geocode_address(address: str) -> Optional[tuple[float, float]]:
-    """
-    OpenStreetMap Nominatim API로 주소를 위도/경도로 변환합니다.
-    심사 불필요, API Key 불필요, 완전 무료.
-    """
-    url = "https://nominatim.openstreetmap.org/search"
-    params = {
-        "q": address,
-        "format": "json",
-        "limit": 1,
-        "countrycodes": "kr",  # 한국 주소로 범위 제한
-    }
-    headers = {
-        # Nominatim 이용관인 상 User-Agent 필수 명시
-        "User-Agent": "Salijang/1.0 (contact@salijang.com)",
-        "Accept-Language": "ko",
-    }
+    """카카오 로컬 API로 주소를 위도/경도로 변환합니다."""
+    url = "https://dapi.kakao.com/v2/local/search/address.json"
+    headers = {"Authorization": f"KakaoAK {KAKAO_REST_API_KEY}"}
+    params = {"query": address, "analyze_type": "similar"}
     try:
         async with httpx.AsyncClient() as client:
             resp = await client.get(url, params=params, headers=headers, timeout=8.0)
+            print(f"[geocode] status={resp.status_code} body={resp.text[:300]}")
             data = resp.json()
-            if data:
-                return float(data[0]["lat"]), float(data[0]["lon"])
+            docs = data.get("documents", [])
+            if docs:
+                # x = 경도(longitude), y = 위도(latitude)
+                return float(docs[0]["y"]), float(docs[0]["x"])
     except Exception as e:
         print(f"Geocoding error: {e}")
     return None
@@ -42,15 +35,17 @@ async def create_store(store: schemas.StoreCreate, owner_id: int, db: AsyncSessi
     print(f"[create_store] 수신된 데이터: name={store.name}, address={store.address}, address_detail={store.address_detail}, lat={store.latitude}, lng={store.longitude}")
     
     lat, lng = store.latitude, store.longitude
-    
-    # 주소가 입력된 경우 Nominatim으로 위도/경도 자동 추출
-    # "지하", "지상" 등 Nominatim이 인식 못하는 키워드 제거 후 지오코딩
-    import re
-    geocode_address_str = re.sub(r'\s*지하\s*|\s*지상\s*', ' ', store.address or '').strip() if store.address else ''
-    geocode_address_str = re.sub(r'\s+', ' ', geocode_address_str)
-    if geocode_address_str and not (lat and lng):
-        print(f"[create_store] 주소 지오코딩 시도: {geocode_address_str}")
-        result = await geocode_address(geocode_address_str)
+
+    if store.address and not (lat and lng):
+        import re
+        print(f"[create_store] 주소 지오코딩 시도: {store.address}")
+        result = await geocode_address(store.address)
+        # 결과 없으면 "지하"/"지상" 제거 후 재시도
+        if not result:
+            fallback = re.sub(r'\s*(?:지하|지상)\s*', ' ', store.address).strip()
+            fallback = re.sub(r'\s+', ' ', fallback)
+            print(f"[create_store] 지오코딩 재시도 (fallback): {fallback}")
+            result = await geocode_address(fallback)
         print(f"[create_store] 지오코딩 결과: {result}")
         if result:
             lat, lng = result
@@ -91,12 +86,14 @@ async def update_store(store_id: int, store_update: schemas.StoreUpdate, db: Asy
         store.address_detail = store_update.address_detail
     if store_update.address is not None:
         store.address = store_update.address
-        # 주소가 바뀌었으면 재지오코딩
         import re
-        geocode_str = re.sub(r'\s*지하\s*|\s*지상\s*', ' ', store_update.address).strip()
-        geocode_str = re.sub(r'\s+', ' ', geocode_str)
-        print(f"[update_store] 재지오코딩 시도: {geocode_str}")
-        coords = await geocode_address(geocode_str)
+        print(f"[update_store] 재지오코딩 시도: {store_update.address}")
+        coords = await geocode_address(store_update.address)
+        if not coords:
+            fallback = re.sub(r'\s*(?:지하|지상)\s*', ' ', store_update.address).strip()
+            fallback = re.sub(r'\s+', ' ', fallback)
+            print(f"[update_store] 재지오코딩 재시도 (fallback): {fallback}")
+            coords = await geocode_address(fallback)
         print(f"[update_store] 지오코딩 결과: {coords}")
         if coords:
             store.latitude, store.longitude = coords
