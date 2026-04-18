@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import update, func
+from sqlalchemy import update, func, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
+from datetime import datetime
 import math
 
 def format_distance(km: float) -> str:
@@ -77,6 +78,18 @@ async def list_products(
 
     if store_id:
         query = query.filter(models.Product.store_id == store_id)
+    else:
+        # buyer 조회: 픽업 마감이 지난 상품 제외
+        # "YYYY-MM-DDTHH:MM" 형식만 비교 (길이 <= 5 이면 구형 "HH:MM" 형식 → 표시 유지)
+        now_str = datetime.now().strftime('%Y-%m-%dT%H:%M')
+        query = query.filter(
+            or_(
+                models.Product.pickup_deadline == None,
+                models.Product.pickup_deadline == '',
+                func.length(models.Product.pickup_deadline) <= 5,
+                models.Product.pickup_deadline >= now_str,
+            )
+        )
 
     if category:
         query = query.filter(models.Product.category == category)
@@ -97,6 +110,7 @@ async def list_products(
         if p.store:
             p_resp.shop_name = p.store.name
             p_resp.store_address = p.store.address
+            p_resp.store_address_detail = p.store.address_detail
             if user_lat is not None and user_lng is not None and p.store.latitude and p.store.longitude:
                 dlat = math.radians(p.store.latitude - user_lat)
                 dlng = math.radians(p.store.longitude - user_lng)
@@ -112,7 +126,12 @@ async def list_products(
     return response_list
 
 @router.get("/{product_id}", response_model=schemas.ProductResponse)
-async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
+async def get_product(
+    product_id: int,
+    user_lat: Optional[float] = None,
+    user_lng: Optional[float] = None,
+    db: AsyncSession = Depends(get_db),
+):
     result = await db.execute(select(models.Product).options(selectinload(models.Product.store)).filter(
         models.Product.id == product_id,
         models.Product.is_deleted == False
@@ -120,12 +139,22 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
     product = result.scalars().first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-        
+
     p_resp = schemas.ProductResponse.model_validate(product)
     if product.store:
         p_resp.shop_name = product.store.name
         p_resp.store_address = product.store.address
-        p_resp.distance = product.store.distance
+        p_resp.store_address_detail = product.store.address_detail
+        p_resp.latitude = product.store.latitude
+        p_resp.longitude = product.store.longitude
+        if user_lat is not None and user_lng is not None and product.store.latitude and product.store.longitude:
+            dlat = math.radians(product.store.latitude - user_lat)
+            dlng = math.radians(product.store.longitude - user_lng)
+            a = math.sin(dlat/2)**2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(product.store.latitude)) * math.sin(dlng/2)**2
+            dist_km = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            p_resp.distance = format_distance(dist_km)
+        else:
+            p_resp.distance = product.store.distance
     return p_resp
 
 @router.patch("/{product_id}/remaining")

@@ -9,12 +9,19 @@ class StoreBase(BaseModel):
     longitude: Optional[float] = None
 
 class StoreCreate(StoreBase):
-    address: Optional[str] = None  # 판매자가 입력하는 주소 텍스트 (지오코딩에 사용)
+    address: Optional[str] = None         # 기본 주소 (지오코딩에 사용)
+    address_detail: Optional[str] = None  # 상세 주소 (표시용, 지오코딩 제외)
+
+class StoreUpdate(BaseModel):
+    name: Optional[str] = None
+    address: Optional[str] = None
+    address_detail: Optional[str] = None
 
 class StoreResponse(StoreBase):
     id: int
     owner_id: int
     address: Optional[str] = None
+    address_detail: Optional[str] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
@@ -55,6 +62,7 @@ class ProductResponse(ProductBase):
     # 조인(Join)된 가게 데이터를 프론트엔드로 쉽게 넘겨주기 위함
     shop_name: Optional[str] = None
     store_address: Optional[str] = None
+    store_address_detail: Optional[str] = None
     distance: Optional[str] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
