@@ -1,11 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
+from sqlalchemy import func
 from typing import List, Optional
+import os
+import httpx
 
 from database import get_db
 import models
 import schemas
+
+NOTIFY_SERVICE_URL = os.getenv("NOTIFY_SERVICE_URL", "http://localhost:8003")
 
 router = APIRouter(prefix="/api/v1/reviews", tags=["Reviews"])
 
@@ -42,6 +47,16 @@ async def create_review(review: schemas.ReviewCreate, db: AsyncSession = Depends
 
     await db.commit()
     await db.refresh(new_review)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post(
+                f"{NOTIFY_SERVICE_URL}/api/v1/notifications/internal/review-event",
+                json={"store_id": review.store_id, "store_name": store.name, "buyer_id": review.buyer_id, "rating": review.rating},
+                timeout=3.0,
+            )
+    except Exception as e:
+        print(f"[Product] 리뷰 알림 전송 실패: {e}")
 
     result = schemas.ReviewResponse(
         id=new_review.id,
@@ -101,13 +116,16 @@ async def delete_review(review_id: int, db: AsyncSession = Depends(get_db)):
     store_result = await db.execute(select(models.Store).filter(models.Store.id == review.store_id))
     store = store_result.scalars().first()
 
-    if store and store.review_count > 1:
-        total_rating = (store.avg_rating * store.review_count) - review.rating
-        store.review_count -= 1
-        store.avg_rating = round(total_rating / store.review_count, 1)
-    elif store:
-        store.review_count = 0
-        store.avg_rating = 0.0
-
     await db.delete(review)
+    await db.flush()
+
+    if store:
+        agg = await db.execute(
+            select(func.avg(models.Review.rating), func.count(models.Review.id))
+            .filter(models.Review.store_id == store.id)
+        )
+        avg, count = agg.first()
+        store.avg_rating = round(float(avg), 1) if avg else 0.0
+        store.review_count = count or 0
+
     await db.commit()
