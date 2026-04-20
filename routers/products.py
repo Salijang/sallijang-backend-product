@@ -122,7 +122,7 @@ async def list_products(
                 dist_km = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
                 p_resp.distance = format_distance(dist_km)
             else:
-                p_resp.distance = p.store.distance
+                p_resp.distance = None
             p_resp.latitude = p.store.latitude
             p_resp.longitude = p.store.longitude
         response_list.append(p_resp)
@@ -159,7 +159,7 @@ async def get_product(
             dist_km = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
             p_resp.distance = format_distance(dist_km)
         else:
-            p_resp.distance = product.store.distance
+            p_resp.distance = None
     return p_resp
 
 @router.patch("/{product_id}/remaining")

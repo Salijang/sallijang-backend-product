@@ -4,7 +4,6 @@ from datetime import datetime
 
 class StoreBase(BaseModel):
     name: str
-    distance: Optional[str] = "500m"
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 

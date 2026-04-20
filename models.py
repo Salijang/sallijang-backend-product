@@ -20,7 +20,6 @@ class Store(Base):
     name = Column(String, index=True, nullable=False)
     address = Column(String, nullable=True)
     address_detail = Column(String, nullable=True)
-    distance = Column(String, nullable=True) # 예: "500m"
     latitude = Column(Float, nullable=True)
     longitude = Column(Float, nullable=True)
     created_at = Column(DateTime, default=kst_now)

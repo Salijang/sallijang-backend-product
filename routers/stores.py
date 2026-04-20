@@ -57,7 +57,6 @@ async def create_store(store: schemas.StoreCreate, owner_id: int, db: AsyncSessi
         name=store.name,
         address=store.address,
         address_detail=store.address_detail or None,
-        distance=store.distance,
         latitude=lat,
         longitude=lng
     )
