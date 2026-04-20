@@ -8,6 +8,7 @@ from datetime import datetime
 import math
 
 def format_distance(km: float) -> str:
+    """거리(km)를 사람이 읽기 쉬운 문자열(m 또는 km)로 변환합니다."""
     if km == float('inf'):
         return "거리 알 수 없음"
     m = km * 1000
@@ -37,6 +38,7 @@ router = APIRouter(prefix="/api/v1/products", tags=["Products"])
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(product: schemas.ProductCreate, store_id: int, db: AsyncSession = Depends(get_db)):
+    """가게에 새 상품을 등록합니다. 존재하지 않는 store_id 입력 시 404를 반환합니다."""
     # 등록 전 가게(Store)가 실제로 존재하는지 검증
     result = await db.execute(select(models.Store).filter(models.Store.id == store_id))
     store = result.scalars().first()
@@ -66,6 +68,8 @@ async def list_products(
     offset: int = 0,
     db: AsyncSession = Depends(get_db)
 ):
+    """상품 목록을 조회합니다. store_id로 특정 가게 필터, user_lat/lng 제공 시 거리 순 정렬.
+    store_id 미지정(buyer 조회) 시 픽업 마감이 지난 상품은 자동 제외됩니다."""
     query = (
         select(models.Product)
         .options(selectinload(models.Product.store))
@@ -132,6 +136,7 @@ async def get_product(
     user_lng: Optional[float] = None,
     db: AsyncSession = Depends(get_db),
 ):
+    """단일 상품을 조회합니다. user_lat/lng 제공 시 가게까지의 거리를 계산하여 반환합니다."""
     result = await db.execute(select(models.Product).options(selectinload(models.Product.store)).filter(
         models.Product.id == product_id,
         models.Product.is_deleted == False
@@ -196,6 +201,7 @@ async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depen
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
 async def update_product(product_id: int, product_update: schemas.ProductUpdate, db: AsyncSession = Depends(get_db)):
+    """상품 정보를 수정합니다. 전달된 필드만 선택적으로 업데이트합니다."""
     result = await db.execute(select(models.Product).options(selectinload(models.Product.store)).filter(
         models.Product.id == product_id,
         models.Product.is_deleted == False
@@ -220,6 +226,7 @@ async def update_product(product_id: int, product_update: schemas.ProductUpdate,
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
+    """상품을 소프트 삭제합니다 (is_deleted=True). 실제 DB 레코드는 보존됩니다."""
     result = await db.execute(select(models.Product).filter(
         models.Product.id == product_id,
         models.Product.is_deleted == False
