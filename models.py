@@ -25,7 +25,11 @@ class Store(Base):
     longitude = Column(Float, nullable=True)
     created_at = Column(DateTime, default=kst_now)
 
+    avg_rating = Column(Float, default=0.0, nullable=False)
+    review_count = Column(Integer, default=0, nullable=False)
+
     products = relationship("Product", back_populates="store")
+    reviews = relationship("Review", back_populates="store")
 
 class Product(Base):
     __tablename__ = "products"
@@ -51,3 +55,22 @@ class Product(Base):
     is_deleted = Column(Boolean, default=False)
 
     store = relationship("Store", back_populates="products")
+
+
+class Review(Base):
+    __tablename__ = "reviews"
+    __table_args__ = (
+        Index('ix_review_store_id', 'store_id'),
+        Index('ix_review_buyer_id', 'buyer_id'),
+        {'schema': 'product_schema'},
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    store_id = Column(Integer, ForeignKey("product_schema.stores.id"), nullable=False)
+    buyer_id = Column(Integer, nullable=False)
+    order_id = Column(Integer, nullable=False)
+    rating = Column(Integer, nullable=False)
+    content = Column(String, nullable=False)
+    created_at = Column(DateTime, default=kst_now)
+
+    store = relationship("Store", back_populates="reviews")

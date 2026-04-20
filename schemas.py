@@ -22,6 +22,28 @@ class StoreResponse(StoreBase):
     owner_id: int
     address: Optional[str] = None
     address_detail: Optional[str] = None
+    avg_rating: float = 0.0
+    review_count: int = 0
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ReviewCreate(BaseModel):
+    store_id: int
+    order_id: int
+    buyer_id: int
+    rating: int
+    content: str
+
+
+class ReviewResponse(BaseModel):
+    id: int
+    store_id: int
+    buyer_id: int
+    order_id: int
+    rating: int
+    content: str
+    store_name: Optional[str] = None
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
 
