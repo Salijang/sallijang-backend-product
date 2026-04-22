@@ -54,7 +54,7 @@ async def create_product(product: schemas.ProductCreate, store_id: int, db: Asyn
     response_data = schemas.ProductResponse.model_validate(new_product)
     response_data.shop_name = store.name
     response_data.store_address = store.address
-    response_data.distance = store.distance
+    response_data.distance = None
 
     return response_data
 
@@ -221,7 +221,7 @@ async def update_product(product_id: int, product_update: schemas.ProductUpdate,
     if product.store:
         p_resp.shop_name = product.store.name
         p_resp.store_address = product.store.address
-        p_resp.distance = product.store.distance
+        p_resp.distance = None
     return p_resp
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
