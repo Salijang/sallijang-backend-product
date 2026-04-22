@@ -1,4 +1,4 @@
-name: CI to AWS ECR (Access Key)
+name: CI/CD Pipeline for Product Service
 
 on:
   push:
@@ -9,12 +9,11 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 1. Python 환경 설정 및 테스트 (선택 사항)
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -26,7 +25,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      # 2. AWS 자격 증명 설정 (Secrets 기반)
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -34,22 +32,39 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3. Amazon ECR 로그인
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # 4. Docker 빌드 및 ECR 푸시
       - name: Build, tag, and push image to Amazon ECR
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: ${{ github.event.repository.name }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          # 빌드 및 태그 (latest와 커밋해시 둘 다 적용)
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker tag $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG $ECR_REGISTRY/$ECR_REPOSITORY:latest
-          
-          # 푸시
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Checkout Manifest Repository
+        uses: actions/checkout@v4
+        with:
+          repository: Salijang/sallijang-manifest
+          token: ${{ secrets.GHA_TOKEN }}
+          path: manifest
+
+      - name: Setup Kustomize
+        uses: imranismail/setup-kustomize@v2
+
+      - name: Update Kubernetes resources
+        run: |
+          cd manifest/base/product
+          REAL_IMAGE_URL="${{ steps.login-ecr.outputs.registry }}/${{ github.event.repository.name }}"
+          kustomize edit set image product-image=$REAL_IMAGE_URL:${{ github.sha }}
+          cat kustomization.yaml
+          git config --global user.email "github-actions@github.com"
+          git config --global user.name "github-actions"
+          git add kustomization.yaml
+          git diff --cached --quiet || git commit -m "chore(product): update image tag to ${{ github.sha }} [skip ci]"
+          git push origin main
