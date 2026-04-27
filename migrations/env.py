@@ -18,12 +18,15 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    import boto3
     from urllib.parse import quote_plus
     host = os.environ.get("DB_HOST", "localhost")
     port = os.environ.get("DB_PORT", "5432")
     user = os.environ.get("DB_USER", "adminuser")
     db = os.environ.get("DB_NAME", "pickupdb")
+    password = os.environ.get("DB_PASSWORD", "")
+    if password:
+        return f"postgresql+asyncpg://{user}:{quote_plus(password)}@{host}:{port}/{db}"
+    import boto3
     region = os.environ.get("AWS_REGION", "ap-northeast-2")
     token = boto3.client("rds", region_name=region).generate_db_auth_token(
         DBHostname=host, Port=int(port), DBUsername=user
@@ -65,10 +68,11 @@ def do_run_migrations(connection):
 
 
 async def run_migrations_online() -> None:
+    connect_args = {} if os.environ.get("DB_PASSWORD") else {"ssl": "require"}
     connectable = create_async_engine(
         get_url(),
         poolclass=pool.NullPool,
-        connect_args={"ssl": "require"},
+        connect_args=connect_args,
     )
     async with connectable.begin() as connection:
         await connection.run_sync(do_run_migrations)

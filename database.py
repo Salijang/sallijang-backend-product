@@ -8,7 +8,10 @@ DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_PORT = os.environ.get("DB_PORT", "5432")
 DB_USER = os.environ.get("DB_USER", "adminuser")
 DB_NAME = os.environ.get("DB_NAME", "pickupdb")
+DB_PASSWORD = os.environ.get("DB_PASSWORD", "")
 AWS_REGION = os.environ.get("AWS_REGION", "ap-northeast-2")
+
+_USE_IAM = not bool(DB_PASSWORD)
 
 
 def _generate_iam_token() -> str:
@@ -19,17 +22,24 @@ def _generate_iam_token() -> str:
     )
 
 
+if _USE_IAM:
+    _url = f"postgresql+asyncpg://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    _connect_args = {"ssl": "require"}
+else:
+    _url = f"postgresql+asyncpg://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
+    _connect_args = {}
+
 engine = create_async_engine(
-    f"postgresql+asyncpg://{DB_USER}@{DB_HOST}:{DB_PORT}/{DB_NAME}",
+    _url,
     pool_recycle=600,
-    connect_args={"ssl": "require"},
+    connect_args=_connect_args,
     echo=False,
 )
 
-
-@event.listens_for(engine.sync_engine, "do_connect")
-def provide_iam_token(dialect, conn_rec, cargs, cparams):
-    cparams["password"] = _generate_iam_token()
+if _USE_IAM:
+    @event.listens_for(engine.sync_engine, "do_connect")
+    def provide_iam_token(dialect, conn_rec, cargs, cparams):
+        cparams["password"] = _generate_iam_token()
 
 
 SessionLocal = sessionmaker(
