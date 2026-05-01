@@ -20,7 +20,7 @@ app = FastAPI(
 # 프론트엔드 연동을 위한 CORS 예외 처리
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://app.sallijang.shop"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
