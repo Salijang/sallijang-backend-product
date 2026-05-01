@@ -31,19 +31,27 @@ def _haversine_expr(user_lat: float, user_lng: float):
     )
 
 from database import get_db
+from deps import get_current_user, CurrentUser
 import models
 import schemas
 
 router = APIRouter(prefix="/api/v1/products", tags=["Products"])
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
-async def create_product(product: schemas.ProductCreate, store_id: int, db: AsyncSession = Depends(get_db)):
+async def create_product(
+    product: schemas.ProductCreate,
+    store_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """가게에 새 상품을 등록합니다. 존재하지 않는 store_id 입력 시 404를 반환합니다."""
     # 등록 전 가게(Store)가 실제로 존재하는지 검증
     result = await db.execute(select(models.Store).filter(models.Store.id == store_id))
     store = result.scalars().first()
     if not store:
         raise HTTPException(status_code=404, detail="Store not found")
+    if store.owner_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     new_product = models.Product(**product.model_dump(), store_id=store_id)
     db.add(new_product)
@@ -200,7 +208,12 @@ async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depen
     return {"product_id": product_id, "remaining": row[0]}
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
-async def update_product(product_id: int, product_update: schemas.ProductUpdate, db: AsyncSession = Depends(get_db)):
+async def update_product(
+    product_id: int,
+    product_update: schemas.ProductUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """상품 정보를 수정합니다. 전달된 필드만 선택적으로 업데이트합니다."""
     result = await db.execute(select(models.Product).options(selectinload(models.Product.store)).filter(
         models.Product.id == product_id,
@@ -209,7 +222,9 @@ async def update_product(product_id: int, product_update: schemas.ProductUpdate,
     product = result.scalars().first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-        
+    if product.store and product.store.owner_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     update_data = product_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(product, key, value)
@@ -225,16 +240,22 @@ async def update_product(product_id: int, product_update: schemas.ProductUpdate,
     return p_resp
 
 @router.delete("/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_product(
+    product_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     """상품을 소프트 삭제합니다 (is_deleted=True). 실제 DB 레코드는 보존됩니다."""
-    result = await db.execute(select(models.Product).filter(
+    result = await db.execute(select(models.Product).options(selectinload(models.Product.store)).filter(
         models.Product.id == product_id,
         models.Product.is_deleted == False
     ))
     product = result.scalars().first()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
-        
+    if product.store and product.store.owner_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     product.is_deleted = True
     await db.commit()
     return None
