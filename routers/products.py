@@ -32,6 +32,7 @@ def _haversine_expr(user_lat: float, user_lng: float):
 
 from database import get_db
 from deps import get_current_user, CurrentUser
+from redis_client import set_stock
 import models
 import schemas
 
@@ -57,6 +58,8 @@ async def create_product(
     db.add(new_product)
     await db.commit()
     await db.refresh(new_product)
+
+    await set_stock(new_product.id, new_product.remaining)
 
     # 응답 스키마에 프론트엔드가 요구하는 가게 이름(shop_name) 정보를 결합하여 반환
     response_data = schemas.ProductResponse.model_validate(new_product)
@@ -205,6 +208,7 @@ async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depen
         )
 
     await db.commit()
+    await set_stock(product_id, row[0])
     return {"product_id": product_id, "remaining": row[0]}
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
@@ -228,9 +232,12 @@ async def update_product(
     update_data = product_update.model_dump(exclude_unset=True)
     for key, value in update_data.items():
         setattr(product, key, value)
-        
+
     await db.commit()
     await db.refresh(product)
+
+    if "remaining" in update_data:
+        await set_stock(product.id, product.remaining)
     
     p_resp = schemas.ProductResponse.model_validate(product)
     if product.store:
