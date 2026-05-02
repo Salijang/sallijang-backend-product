@@ -23,6 +23,5 @@ __pycache__/
 Thumbs.db
 
 # FastAPI / SQLAlchemy / Alembic
-alembic.ini
 *.sqlite
 *.db

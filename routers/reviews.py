@@ -7,6 +7,7 @@ import os
 import httpx
 
 from database import get_db
+from deps import get_current_user, CurrentUser
 import models
 import schemas
 
@@ -16,8 +17,11 @@ router = APIRouter(prefix="/api/v1/reviews", tags=["Reviews"])
 
 
 @router.post("/", response_model=schemas.ReviewResponse, status_code=status.HTTP_201_CREATED)
-async def create_review(review: schemas.ReviewCreate, db: AsyncSession = Depends(get_db)):
-    """리뷰를 작성합니다. 같은 order_id로 중복 작성은 불가합니다."""
+async def create_review(
+    review: schemas.ReviewCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     store_result = await db.execute(select(models.Store).filter(models.Store.id == review.store_id))
     store = store_result.scalars().first()
     if not store:
@@ -34,7 +38,7 @@ async def create_review(review: schemas.ReviewCreate, db: AsyncSession = Depends
 
     new_review = models.Review(
         store_id=review.store_id,
-        buyer_id=review.buyer_id,
+        buyer_id=current_user.user_id,
         order_id=review.order_id,
         rating=review.rating,
         content=review.content,
@@ -52,13 +56,13 @@ async def create_review(review: schemas.ReviewCreate, db: AsyncSession = Depends
         async with httpx.AsyncClient() as client:
             await client.post(
                 f"{NOTIFY_SERVICE_URL}/api/v1/notifications/internal/review-event",
-                json={"store_id": review.store_id, "store_name": store.name, "buyer_id": review.buyer_id, "rating": review.rating},
+                json={"store_id": review.store_id, "store_name": store.name, "buyer_id": current_user.user_id, "rating": review.rating},
                 timeout=3.0,
             )
     except Exception as e:
         print(f"[Product] 리뷰 알림 전송 실패: {e}")
 
-    result = schemas.ReviewResponse(
+    return schemas.ReviewResponse(
         id=new_review.id,
         store_id=new_review.store_id,
         buyer_id=new_review.buyer_id,
@@ -68,7 +72,6 @@ async def create_review(review: schemas.ReviewCreate, db: AsyncSession = Depends
         store_name=store.name,
         created_at=new_review.created_at,
     )
-    return result
 
 
 @router.get("/", response_model=List[schemas.ReviewResponse])
@@ -77,7 +80,6 @@ async def list_reviews(
     buyer_id: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """리뷰 목록 조회. store_id 또는 buyer_id로 필터링합니다."""
     query = select(models.Review, models.Store.name).join(
         models.Store, models.Review.store_id == models.Store.id
     )
@@ -106,12 +108,17 @@ async def list_reviews(
 
 
 @router.delete("/{review_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_review(review_id: int, db: AsyncSession = Depends(get_db)):
-    """리뷰를 삭제하고 가게 평균 별점을 재계산합니다."""
+async def delete_review(
+    review_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: CurrentUser = Depends(get_current_user),
+):
     result = await db.execute(select(models.Review).filter(models.Review.id == review_id))
     review = result.scalars().first()
     if not review:
         raise HTTPException(status_code=404, detail="Review not found")
+    if review.buyer_id != current_user.user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
 
     store_result = await db.execute(select(models.Store).filter(models.Store.id == review.store_id))
     store = store_result.scalars().first()

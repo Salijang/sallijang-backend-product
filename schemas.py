@@ -30,7 +30,6 @@ class StoreResponse(StoreBase):
 class ReviewCreate(BaseModel):
     store_id: int
     order_id: int
-    buyer_id: int
     rating: int
     content: str
 
