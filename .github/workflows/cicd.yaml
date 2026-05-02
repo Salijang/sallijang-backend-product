@@ -2,7 +2,7 @@ name: CI/CD Pipeline for Product Service
 
 on:
   push:
-    branches: [ "dev_yji" ]
+    branches: [ "main", "dev_yji" ]
   pull_request:
     branches: [ "main" ]
 

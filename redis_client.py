@@ -18,9 +18,9 @@ async def get_redis() -> aioredis.Redis:
     return _redis
 
 
-async def set_stock(product_id: int, quantity: int) -> None:
+async def set_stock(product_id: int, quantity: int, ttl: int = 86400) -> None:
     try:
         r = await get_redis()
-        await r.set(f"remaining:{product_id}", quantity)
+        await r.set(f"remaining:{product_id}", quantity, ex=ttl)
     except Exception as e:
         print(f"[Redis] set_stock 실패 (product_id={product_id}): {e}")
