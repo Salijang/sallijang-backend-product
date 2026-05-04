@@ -57,6 +57,13 @@ jobs:
       - name: Setup Kustomize
         uses: imranismail/setup-kustomize@v2
 
+      - name: Build and upload image-resize Lambda to S3
+        run: |
+          cd lambda/image-resize
+          npm install --platform=linux --arch=x64
+          zip -r image-resize.zip handler.js node_modules/
+          aws s3 cp image-resize.zip s3://${{ secrets.LAMBDA_CODE_S3_BUCKET }}/lambda/image-resize.zip
+
       - name: Update Kubernetes resources
         run: |
           cd manifest/base/product
