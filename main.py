@@ -1,5 +1,4 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import contextlib
 from database import engine
 from routers import stores, products, reviews
@@ -15,15 +14,6 @@ app = FastAPI(
     description="Microservice for interacting with Sellers' Stores and their discounted Products.",
     version="1.0.0",
     lifespan=lifespan
-)
-
-# 프론트엔드 연동을 위한 CORS 예외 처리
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["https://app.sallijang.shop"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
 )
 
 app.include_router(stores.router)
