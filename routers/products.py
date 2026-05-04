@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, func, or_
@@ -6,6 +6,9 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime
 import math
+import uuid
+import os
+import boto3
 
 def format_distance(km: float) -> str:
     """거리(km)를 사람이 읽기 쉬운 문자열(m 또는 km)로 변환합니다."""
@@ -37,6 +40,25 @@ import models
 import schemas
 
 router = APIRouter(prefix="/api/v1/products", tags=["Products"])
+
+_IMAGE_BUCKET = os.getenv("IMAGE_BUCKET_NAME", "")
+_CDN_URL = os.getenv("CDN_URL", "https://cdn.sallijang.shop")
+
+@router.get("/upload-url")
+async def get_upload_url(
+    file_type: str = Query(default="image/jpeg"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    ext = "jpg" if "jpeg" in file_type else file_type.split("/")[-1]
+    key = f"products/{uuid.uuid4()}.{ext}"
+    s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-northeast-2"))
+    upload_url = s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": _IMAGE_BUCKET, "Key": key, "ContentType": file_type},
+        ExpiresIn=300,
+    )
+    return {"upload_url": upload_url, "key": key, "cdn_url": f"{_CDN_URL}/{key}"}
+
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
