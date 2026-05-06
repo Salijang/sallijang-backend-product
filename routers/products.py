@@ -1,11 +1,16 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, func, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime
+import asyncio
 import math
+import uuid
+import os
+import boto3
 
 def format_distance(km: float) -> str:
     """거리(km)를 사람이 읽기 쉬운 문자열(m 또는 km)로 변환합니다."""
@@ -32,11 +37,31 @@ def _haversine_expr(user_lat: float, user_lng: float):
 
 from database import get_db
 from deps import get_current_user, CurrentUser
-from redis_client import set_stock
+from redis_client import set_stock, get_redis, publish_product_update
 import models
 import schemas
 
 router = APIRouter(prefix="/api/v1/products", tags=["Products"])
+
+_IMAGE_BUCKET = os.getenv("IMAGE_BUCKET_NAME", "")
+_CDN_URL = os.getenv("CDN_URL", "https://cdn.sallijang.shop")
+
+@router.get("/upload-url")
+async def get_upload_url(
+    file_type: str = Query(default="image/jpeg"),
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    ext = "jpg" if "jpeg" in file_type else file_type.split("/")[-1]
+    key = f"products/{uuid.uuid4()}.{ext}"
+    region = os.getenv("AWS_REGION", "ap-northeast-2")
+    s3 = boto3.client("s3", region_name=region, endpoint_url=f"https://s3.{region}.amazonaws.com")
+    upload_url = s3.generate_presigned_url(
+        "put_object",
+        Params={"Bucket": _IMAGE_BUCKET, "Key": key, "ContentType": file_type},
+        ExpiresIn=300,
+    )
+    return {"upload_url": upload_url, "key": key, "cdn_url": f"{_CDN_URL}/{key}"}
+
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
 async def create_product(
@@ -209,7 +234,34 @@ async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depen
 
     await db.commit()
     await set_stock(product_id, row[0])
+    await publish_product_update(product_id, row[0])
     return {"product_id": product_id, "remaining": row[0]}
+
+@router.get("/stream")
+async def stream_product_updates(request: Request):
+    async def generator():
+        r = await get_redis()
+        pubsub = r.pubsub()
+        await pubsub.subscribe("sse:products")
+        try:
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30.0)
+                if message:
+                    yield f"data: {message['data']}\n\n"
+                else:
+                    yield ": ping\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await pubsub.unsubscribe("sse:products")
+            await pubsub.aclose()
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
 async def update_product(
