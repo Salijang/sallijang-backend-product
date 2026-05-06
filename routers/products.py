@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, func, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from datetime import datetime
+import asyncio
 import math
 import uuid
 import os
@@ -35,7 +37,7 @@ def _haversine_expr(user_lat: float, user_lng: float):
 
 from database import get_db
 from deps import get_current_user, CurrentUser
-from redis_client import set_stock
+from redis_client import set_stock, get_redis, publish_product_update
 import models
 import schemas
 
@@ -232,7 +234,34 @@ async def adjust_remaining(product_id: int, delta: int, db: AsyncSession = Depen
 
     await db.commit()
     await set_stock(product_id, row[0])
+    await publish_product_update(product_id, row[0])
     return {"product_id": product_id, "remaining": row[0]}
+
+@router.get("/stream")
+async def stream_product_updates(request: Request):
+    async def generator():
+        r = await get_redis()
+        pubsub = r.pubsub()
+        await pubsub.subscribe("sse:products")
+        try:
+            while True:
+                message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=30.0)
+                if message:
+                    yield f"data: {message['data']}\n\n"
+                else:
+                    yield ": ping\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await pubsub.unsubscribe("sse:products")
+            await pubsub.aclose()
+
+    return StreamingResponse(
+        generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
 
 @router.patch("/{product_id}", response_model=schemas.ProductResponse)
 async def update_product(

@@ -1,4 +1,5 @@
 import os
+import json
 import redis.asyncio as aioredis
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
@@ -16,6 +17,14 @@ async def get_redis() -> aioredis.Redis:
             socket_timeout=3,
         )
     return _redis
+
+
+async def publish_product_update(product_id: int, remaining: int) -> None:
+    try:
+        r = await get_redis()
+        await r.publish("sse:products", json.dumps({"product_id": product_id, "remaining": remaining}))
+    except Exception as e:
+        print(f"[Redis] publish_product_update 실패 (product_id={product_id}): {e}")
 
 
 async def set_stock(product_id: int, quantity: int, ttl: int = 86400) -> None:
