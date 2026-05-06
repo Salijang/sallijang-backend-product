@@ -51,7 +51,8 @@ async def get_upload_url(
 ):
     ext = "jpg" if "jpeg" in file_type else file_type.split("/")[-1]
     key = f"products/{uuid.uuid4()}.{ext}"
-    s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION", "ap-northeast-2"))
+    region = os.getenv("AWS_REGION", "ap-northeast-2")
+    s3 = boto3.client("s3", region_name=region, endpoint_url=f"https://s3.{region}.amazonaws.com")
     upload_url = s3.generate_presigned_url(
         "put_object",
         Params={"Bucket": _IMAGE_BUCKET, "Key": key, "ContentType": file_type},
