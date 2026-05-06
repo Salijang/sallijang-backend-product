@@ -85,6 +85,7 @@ async def create_product(
     await db.refresh(new_product)
 
     await set_stock(new_product.id, new_product.remaining)
+    await publish_product_update(new_product.id, new_product.remaining)
 
     # 응답 스키마에 프론트엔드가 요구하는 가게 이름(shop_name) 정보를 결합하여 반환
     response_data = schemas.ProductResponse.model_validate(new_product)
