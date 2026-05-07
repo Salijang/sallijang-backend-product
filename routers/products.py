@@ -130,8 +130,8 @@ async def analyze_product_image(
             "description": data.get("description", ""),
             "category": category,
         }
-    except Exception:
-        raise HTTPException(status_code=502, detail="AI 분석에 실패했습니다.")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"AI 분석 실패: {str(e)}")
 
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
