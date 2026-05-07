@@ -10,7 +10,11 @@ import asyncio
 import math
 import uuid
 import os
+import base64
+import json
+import re
 import boto3
+import httpx
 
 def format_distance(km: float) -> str:
     """거리(km)를 사람이 읽기 쉬운 문자열(m 또는 km)로 변환합니다."""
@@ -61,6 +65,73 @@ async def get_upload_url(
         ExpiresIn=300,
     )
     return {"upload_url": upload_url, "key": key, "cdn_url": f"{_CDN_URL}/{key}"}
+
+
+_BEDROCK_SUPPORTED_MEDIA = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_CATEGORIES = ["🥩 정육", "🥬 채소", "🐟 수산", "🍱 반찬", "🥐 베이커리"]
+
+@router.post("/analyze-image")
+async def analyze_product_image(
+    body: schemas.ImageAnalyzeRequest,
+    current_user: CurrentUser = Depends(get_current_user),
+):
+    """상품 사진을 Bedrock Claude로 분석해 상품명·설명·카테고리를 자동 생성합니다."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            img_res = await client.get(body.image_url)
+            img_res.raise_for_status()
+        except Exception:
+            raise HTTPException(status_code=400, detail="이미지를 가져올 수 없습니다.")
+
+    if len(img_res.content) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="이미지 크기가 너무 큽니다 (5MB 이하).")
+
+    media_type = img_res.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+    if media_type not in _BEDROCK_SUPPORTED_MEDIA:
+        media_type = "image/jpeg"
+
+    image_b64 = base64.standard_b64encode(img_res.content).decode()
+
+    categories_str = ", ".join(_CATEGORIES)
+    prompt = (
+        f"이 사진은 마감 특가 상품 사진입니다. 사진을 보고 다음 JSON만 응답하세요 (다른 말 없이):\n"
+        f"{{\"name\": \"상품명\", \"description\": \"2~3문장 설명 (신선도·상태·특징)\", \"category\": \"{categories_str} 중 하나\"}}"
+    )
+
+    payload = {
+        "anthropic_version": "bedrock-2023-05-31",
+        "max_tokens": 512,
+        "messages": [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+                {"type": "text", "text": prompt},
+            ],
+        }],
+    }
+
+    bedrock_region = os.getenv("BEDROCK_REGION", "us-east-1")
+    model_id = os.getenv("BEDROCK_MODEL_ID", "anthropic.claude-3-5-sonnet-20241022-v2:0")
+
+    try:
+        bedrock = boto3.client("bedrock-runtime", region_name=bedrock_region)
+        resp = await asyncio.to_thread(
+            bedrock.invoke_model, modelId=model_id, body=json.dumps(payload)
+        )
+        raw_text = json.loads(resp["body"].read())["content"][0]["text"].strip()
+        raw_text = re.sub(r"^```[a-zA-Z]*\n?", "", raw_text)
+        raw_text = re.sub(r"\n?```$", "", raw_text.strip())
+        data = json.loads(raw_text)
+        category = data.get("category", "")
+        if category not in _CATEGORIES:
+            category = ""
+        return {
+            "name": data.get("name", ""),
+            "description": data.get("description", ""),
+            "category": category,
+        }
+    except Exception:
+        raise HTTPException(status_code=502, detail="AI 분석에 실패했습니다.")
 
 
 @router.post("/", response_model=schemas.ProductResponse, status_code=status.HTTP_201_CREATED)
