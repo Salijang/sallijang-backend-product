@@ -67,10 +67,18 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
+          ISSUE="HIGH/CRITICAL 이미지 보안 이슈가 발견되었습니다."
+
           if [ -f trivy-image-results.txt ]; then
-            ISSUE=$(grep -m 1 "HIGH" trivy-image-results.txt || grep -m 1 "CRITICAL" trivy-image-results.txt || echo "HIGH/CRITICAL 이미지 보안 이슈가 발견되었습니다.")
-          else
-            ISSUE="Trivy 결과 파일이 생성되지 않았습니다. Actions 로그 확인이 필요합니다."
+            FOUND_ISSUE=$(grep -m 1 "HIGH" trivy-image-results.txt || true)
+
+            if [ -z "$FOUND_ISSUE" ]; then
+              FOUND_ISSUE=$(grep -m 1 "CRITICAL" trivy-image-results.txt || true)
+            fi
+
+            if [ -n "$FOUND_ISSUE" ]; then
+              ISSUE="$FOUND_ISSUE"
+            fi
           fi
 
           curl -X POST -H 'Content-type: application/json' \
