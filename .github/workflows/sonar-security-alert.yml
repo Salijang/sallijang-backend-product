@@ -1,0 +1,61 @@
+name: Sonar High Issue Alert
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - '**/*.py'
+      - 'requirements.txt'
+      - 'pyproject.toml'
+      - 'poetry.lock'
+      - '.github/workflows/sonar-security-alert.yml'
+
+jobs:
+  sonar-high-issue-alert:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run SonarQube Scan
+        uses: SonarSource/sonarqube-scan-action@v6
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          args: >
+            -Dsonar.organization=salijang
+            -Dsonar.projectKey=Salijang_sallijang-backend-product
+            -Dsonar.sources=.
+            -Dsonar.host.url=https://sonarcloud.io
+
+      - name: Get HIGH issue count
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          RESPONSE=$(curl -s -u "$SONAR_TOKEN:" \
+          "https://sonarcloud.io/api/issues/search?componentKeys=Salijang_sallijang-backend-product&branch=main&impactSeverities=HIGH&issueStatuses=OPEN,CONFIRMED")
+
+          HIGH_COUNT=$(echo "$RESPONSE" | jq '.total')
+          ISSUE=$(echo "$RESPONSE" | jq -r '.issues[0].message // "HIGH 이슈 상세 메시지를 가져오지 못했습니다."')
+
+          echo "HIGH_COUNT=$HIGH_COUNT" >> $GITHUB_ENV
+          echo "ISSUE=$ISSUE" >> $GITHUB_ENV
+
+          echo "HIGH Issues: $HIGH_COUNT"
+          echo "Issue: $ISSUE"
+
+      - name: Send Slack Alert
+        if: env.HIGH_COUNT != '0'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          curl -X POST -H 'Content-type: application/json' \
+          --data "{
+            \"text\":\"🔎 *SonarQube High Issue Alert*\n<@U0A5ZUZRT7A>\nRepository: sallijang-*backend-product*\nHIGH Issues: ${HIGH_COUNT}건\nIssue: ${ISSUE}\n확인: https://sonarcloud.io/project/issues?impactSeverities=HIGH&issueStatuses=OPEN%2CCONFIRMED&id=Salijang_sallijang-backend-product\"
+          }" \
+          "$SLACK_WEBHOOK_URL"
