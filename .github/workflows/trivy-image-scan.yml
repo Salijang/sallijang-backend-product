@@ -27,6 +27,16 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Check Slack webhook secret
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is missing"
+            exit 1
+          fi
+          echo "SLACK_WEBHOOK_URL exists"
+
       - name: Build Docker image
         run: |
           docker build -t sallijang-backend-product:latest .
@@ -42,7 +52,6 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: 1
           ignore-unfixed: true
-          trivyignores: .trivyignore
 
       - name: Print Trivy result
         if: always()
@@ -58,11 +67,15 @@ jobs:
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          ISSUE=$(grep -m 1 "HIGH" trivy-image-results.txt || grep -m 1 "CRITICAL" trivy-image-results.txt || echo "HIGH/CRITICAL 이미지 보안 이슈가 발견되었습니다.")
+          if [ -f trivy-image-results.txt ]; then
+            ISSUE=$(grep -m 1 "HIGH" trivy-image-results.txt || grep -m 1 "CRITICAL" trivy-image-results.txt || echo "HIGH/CRITICAL 이미지 보안 이슈가 발견되었습니다.")
+          else
+            ISSUE="Trivy 결과 파일이 생성되지 않았습니다. Actions 로그 확인이 필요합니다."
+          fi
 
           curl -X POST -H 'Content-type: application/json' \
           --data "{
-            \"text\":\"🛡️ *Trivy Image Security Alert*\n<@U0A5ZUZRT7A>\nRepository: sallijang-*backend-product*\n${ISSUE}\n확인: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
+            \"text\":\"🛡️ *Trivy Image Security Alert*\nRepository: sallijang-*backend-product*\n${ISSUE}\n확인: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"
           }" \
           "$SLACK_WEBHOOK_URL"
 
