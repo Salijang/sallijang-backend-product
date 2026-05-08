@@ -46,6 +46,10 @@ jobs:
           npm install --platform=linux --arch=x64
           zip -r image-resize.zip handler.js node_modules/
           aws s3 cp image-resize.zip s3://${{ env.LAMBDA_CODE_S3_BUCKET }}/lambda/image-resize.zip
+          aws lambda update-function-code \
+            --function-name pickup-prod-image-resize \
+            --s3-bucket ${{ env.LAMBDA_CODE_S3_BUCKET }} \
+            --s3-key lambda/image-resize.zip
 
       - name: Login to Amazon ECR
         id: login-ecr

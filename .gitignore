@@ -25,3 +25,8 @@ Thumbs.db
 # FastAPI / SQLAlchemy / Alembic
 *.sqlite
 *.db
+
+# Lambda build artifacts
+lambda/**/node_modules/
+lambda/**/*.zip
+lambda/**/package-lock.json
