@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from database import engine
 from routers import stores, products, reviews
 from sqs_consumer import start_consumer
@@ -23,6 +24,14 @@ app = FastAPI(
     description="Microservice for interacting with Sellers' Stores and their discounted Products.",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["https://sallijang.shop"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(stores.router)
