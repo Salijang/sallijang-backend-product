@@ -94,7 +94,9 @@ async def analyze_product_image(
 
     categories_str = ", ".join(_CATEGORIES)
     prompt = (
-        f"이 사진은 마감 특가 상품 사진입니다. 사진을 보고 다음 JSON만 응답하세요 (다른 말 없이):\n"
+        f"이 사진이 음식·식재료·반찬·베이커리 등 먹을 수 있는 것인지 먼저 판단하세요.\n"
+        f"음식 사진이 아니면 반드시 {{\"error\": \"not_food\"}} 만 응답하세요.\n"
+        f"음식 사진이면 다음 JSON만 응답하세요 (다른 말 없이):\n"
         f"{{\"name\": \"상품명\", \"description\": \"2~3문장 설명 (신선도·상태·특징)\", \"category\": \"{categories_str} 중 하나\"}}"
     )
 
@@ -122,6 +124,8 @@ async def analyze_product_image(
         raw_text = re.sub(r"^```[a-zA-Z]*\n?", "", raw_text)
         raw_text = re.sub(r"\n?```$", "", raw_text.strip())
         data = json.loads(raw_text)
+        if data.get("error") == "not_food":
+            raise HTTPException(status_code=422, detail="음식 사진이 아닙니다. 음식 또는 식재료 사진을 업로드해 주세요.")
         category = data.get("category", "")
         if category not in _CATEGORIES:
             category = ""
@@ -130,6 +134,8 @@ async def analyze_product_image(
             "description": data.get("description", ""),
             "category": category,
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"AI 분석 실패: {str(e)}")
 
