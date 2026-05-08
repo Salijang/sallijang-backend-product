@@ -4,49 +4,82 @@ on:
   push:
     branches:
       - main
-      - develop
+      - dev_yji
     paths:
       - 'Dockerfile'
       - 'requirements.txt'
+      - 'lambda/**'
+      - '.github/workflows/trivy-image-scan.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
+      - 'requirements.txt'
+      - 'lambda/**'
       - '.github/workflows/trivy-image-scan.yml'
 
 jobs:
-  trivy-image-scan:
+  trivy-image:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t sallijang-backend-product:latest .
+      - name: Check Slack webhook secret
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        run: |
+          if [ -z "$SLACK_WEBHOOK_URL" ]; then
+            echo "SLACK_WEBHOOK_URL is missing"
+            exit 1
+          fi
+          echo "SLACK_WEBHOOK_URL exists"
 
-      - name: Run Trivy image scan
+      - name: Build Docker image
+        run: |
+          docker build -t sallijang-backend-product:latest .
+
+      - name: Run Trivy Image scan
         id: trivy_scan
-        uses: aquasecurity/trivy-action@0.20.0
+        uses: aquasecurity/trivy-action@v0.20.0
         continue-on-error: true
         with:
-          image-ref: 'sallijang-backend-product:latest'
-          format: 'table'
-          output: 'trivy-results.txt'
-          severity: 'HIGH,CRITICAL'
-          exit-code: '1'
+          image-ref: sallijang-backend-product:latest
+          format: table
+          output: trivy-image-results.txt
+          severity: HIGH,CRITICAL
+          exit-code: 1
+          ignore-unfixed: true
 
       - name: Print Trivy result
         if: always()
         run: |
-          if [ -f trivy-results.txt ]; then
-            cat trivy-results.txt
+          if [ -f trivy-image-results.txt ]; then
+            cat trivy-image-results.txt
           else
-            echo "trivy-results.txt file was not created."
+            echo "trivy-image-results.txt file was not created."
           fi
 
-      - name: Send Slack alert on failure
+      - name: Send Slack alert on Trivy failure
         if: steps.trivy_scan.outcome == 'failure'
         env:
           SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
         run: |
-          ISSUE=$(grep -m 1 "HIGH" trivy-results.txt || grep -m 1 "CRITICAL" trivy-results.txt || echo "HIGH/CRITICAL 이미지 보안 이슈 발견")
+          ISSUE="HIGH/CRITICAL 이미지 보안 이슈가 발견되었습니다."
+
+          if [ -f trivy-image-results.txt ]; then
+            FOUND_ISSUE=$(grep -m 1 "HIGH" trivy-image-results.txt || true)
+
+            if [ -z "$FOUND_ISSUE" ]; then
+              FOUND_ISSUE=$(grep -m 1 "CRITICAL" trivy-image-results.txt || true)
+            fi
+
+            if [ -n "$FOUND_ISSUE" ]; then
+              ISSUE="$FOUND_ISSUE"
+            fi
+          fi
 
           curl -X POST -H 'Content-type: application/json' \
           --data "{

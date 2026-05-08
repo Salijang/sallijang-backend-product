@@ -62,6 +62,9 @@ class ProductBase(BaseModel):
 class ProductCreate(ProductBase):
     pass
 
+class ImageAnalyzeRequest(BaseModel):
+    image_url: str
+
 class ProductUpdate(BaseModel):
     name: Optional[str] = None
     original_price: Optional[float] = None
