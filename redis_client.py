@@ -19,10 +19,10 @@ async def get_redis() -> aioredis.Redis:
     return _redis
 
 
-async def publish_product_update(product_id: int, remaining: int) -> None:
+async def publish_product_update(product_id: int, remaining: int, action: str = "stock") -> None:
     try:
         r = await get_redis()
-        await r.publish("sse:products", json.dumps({"product_id": product_id, "remaining": remaining}))
+        await r.publish("sse:products", json.dumps({"product_id": product_id, "remaining": remaining, "action": action}))
     except Exception as e:
         print(f"[Redis] publish_product_update 실패 (product_id={product_id}): {e}")
 

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from sqlalchemy import func
 from typing import List, Optional
 import os
 import httpx
@@ -124,15 +123,14 @@ async def delete_review(
     store = store_result.scalars().first()
 
     await db.delete(review)
-    await db.flush()
 
     if store:
-        agg = await db.execute(
-            select(func.avg(models.Review.rating), func.count(models.Review.id))
-            .filter(models.Review.store_id == store.id)
-        )
-        avg, count = agg.first()
-        store.avg_rating = round(float(avg), 1) if avg else 0.0
-        store.review_count = count or 0
+        if store.review_count > 1:
+            total_rating = store.avg_rating * store.review_count - review.rating
+            store.review_count -= 1
+            store.avg_rating = round(total_rating / store.review_count, 1)
+        else:
+            store.review_count = 0
+            store.avg_rating = 0.0
 
     await db.commit()

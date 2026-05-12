@@ -83,17 +83,26 @@ async def start_consumer() -> None:
     def _delete(receipt_handle: str):
         _get_sqs().delete_message(QueueUrl=STOCK_DEDUCT_QUEUE_URL, ReceiptHandle=receipt_handle)
 
+    async def _handle_message(msg: dict) -> None:
+        body = json.loads(msg["Body"])
+        await process_stock_deduct(body)
+        await asyncio.to_thread(_delete, msg["ReceiptHandle"])
+
     print("[SQS StockDeduct] 소비자 시작")
     while True:
         try:
             response = await asyncio.to_thread(_receive)
-            for msg in response.get("Messages", []):
-                try:
-                    body = json.loads(msg["Body"])
-                    await process_stock_deduct(body)
-                    await asyncio.to_thread(_delete, msg["ReceiptHandle"])
-                except Exception as e:
-                    print(f"[SQS StockDeduct] 메시지 처리 실패: {e}")
+            messages = response.get("Messages", [])
+            if not messages:
+                continue
+            results = await asyncio.gather(
+                *[_handle_message(msg) for msg in messages],
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, Exception):
+                    # 메시지를 삭제하지 않아 visibility timeout 후 SQS가 자동 재시도
+                    print(f"[SQS StockDeduct] 메시지 처리 실패 (재시도 예약): {result}")
         except asyncio.CancelledError:
             print("[SQS StockDeduct] 종료")
             return
