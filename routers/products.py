@@ -184,16 +184,8 @@ async def list_products(
 ):
     """상품 목록을 조회합니다. store_id로 특정 가게 필터, user_lat/lng 제공 시 거리 순 정렬.
     store_id 미지정(buyer 조회) 시 픽업 마감이 지난 상품은 자동 제외됩니다."""
-    has_location = user_lat is not None and user_lng is not None
-
-    if has_location:
-        dist_expr = _haversine_expr(user_lat, user_lng).label("distance_km")
-        base_select = select(models.Product, dist_expr)
-    else:
-        base_select = select(models.Product)
-
     query = (
-        base_select
+        select(models.Product)
         .options(selectinload(models.Product.store))
         .join(models.Store, models.Product.store_id == models.Store.id)
         .filter(
@@ -220,26 +212,30 @@ async def list_products(
     if category:
         query = query.filter(models.Product.category == category)
 
-    if has_location:
+    if user_lat is not None and user_lng is not None:
+        dist_expr = _haversine_expr(user_lat, user_lng)
         query = query.order_by(dist_expr)
 
     query = query.offset(offset).limit(limit)
-    result = await db.execute(query)
 
-    # 위치 있을 때: (Product, distance_km) 튜플, 없을 때: Product만
-    if has_location:
-        rows = result.all()
-    else:
-        rows = [(p, None) for p in result.scalars().all()]
+    result = await db.execute(query)
+    products = result.scalars().all()
 
     response_list = []
-    for p, dist_km in rows:
+    for p in products:
         p_resp = schemas.ProductResponse.model_validate(p)
         if p.store:
             p_resp.shop_name = p.store.name
             p_resp.store_address = p.store.address
             p_resp.store_address_detail = p.store.address_detail
-            p_resp.distance = format_distance(dist_km) if dist_km is not None else None
+            if user_lat is not None and user_lng is not None and p.store.latitude and p.store.longitude:
+                dlat = math.radians(p.store.latitude - user_lat)
+                dlng = math.radians(p.store.longitude - user_lng)
+                a = math.sin(dlat/2)**2 + math.cos(math.radians(user_lat)) * math.cos(math.radians(p.store.latitude)) * math.sin(dlng/2)**2
+                dist_km = 6371.0 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+                p_resp.distance = format_distance(dist_km)
+            else:
+                p_resp.distance = None
             p_resp.latitude = p.store.latitude
             p_resp.longitude = p.store.longitude
         response_list.append(p_resp)
